@@ -1,0 +1,171 @@
+# Wardogs Command Hub — Design
+
+**Date:** 2026-09-11
+**Status:** approved design, pre-implementation
+
+## Problem
+
+WARDOGS team chat moves fast. Players call out enemy vehicles, structures
+and infantry either as a Mark Coordinates line (`📍 x77.90, y70.60`) or as
+free text referencing named places ("one is in tower 5"). Nothing keeps a
+running picture of where those callouts land. The game exposes chat only on
+screen: there is no log file and the server RCON API has no chat endpoint.
+
+## Goal
+
+A desktop app that lives on a second monitor, reads the in-game chat by
+screen capture and OCR, and keeps an always-current tactical map of reported
+enemy positions plus a feed of every chat line.
+
+## Non-goals (v1)
+
+- Writing anything back into the game or into wardogs.tech.
+- Sharing state with other players. Single machine, single user.
+- Reading Discord.
+- Elevation, artillery maths, routing.
+
+## Constraints
+
+- Runs on Windows (primary) and Linux (best effort). Game and app on the
+  same PC, two monitors.
+- Must not affect game performance noticeably: capture a small rectangle,
+  skip OCR on unchanged frames.
+- New maps must be addable without code changes. Currently three maps:
+  Bakurani, Ozeti, Zestafona.
+
+## Chat format (observed)
+
+```
+[TEAM] Qsing: 📍 x77.90, y70.60
+[TEAM] mad_max103: help conquering tower 1, it's pretty defenseless
+[TEAM] [DOGA] mg_nd: supplies delivered to tower 5 but now dead. enemys in there
+[TEAM] Fl4sh: one is in tower 5
+```
+
+- Channel tag in square brackets (`TEAM`; `SQUAD` and `ALL` assumed).
+- Optional clan tag in square brackets before the name.
+- Name terminated by `: `.
+- Mark Coordinates body is a pin emoji (lost in OCR) followed by
+  `x<float>, y<float>`. Range and origin are not documented; default
+  assumption is 0–100 across the full map with y measured from the top,
+  corrected by per-map calibration (see Maps).
+- Lines wrap on screen; a wrapped continuation has no channel prefix.
+
+## Architecture
+
+Tauri v2 desktop app. Rust backend does capture, OCR, parsing and state.
+TypeScript frontend renders the map, pins, feed and settings. Backend pushes
+events to the frontend over Tauri IPC; frontend calls commands for settings
+and manual actions.
+
+```
+capture ──► change gate ──► ocr ──► line dedup ──► parser ──► state ──► IPC ──► UI
+   ▲                                                   ▲
+   └── settings (rectangle, fps)                       └── maps (calibration, named places, keywords)
+```
+
+### Backend modules (`src-tauri/src/`)
+
+| Module      | Responsibility                                                               |
+|-------------|------------------------------------------------------------------------------|
+| `capture`   | Grab the configured chat rectangle from the configured monitor via `xcap`. |
+| `gate`      | Perceptual hash of the frame; skip downstream work if unchanged.             |
+| `ocr`       | `trait OcrEngine { fn read(&self, img) -> Result<Vec<OcrLine>> }`. Impls: `WindowsOcr` (windows-rs, Windows only), `TesseractOcr` (both OSes). Selected by config, default Windows on Windows. |
+| `dedup`     | Normalise lines (case, whitespace, common OCR confusions) and drop lines already seen in a ring buffer of the last N. Handles wrapped continuations by joining a prefix-less line to the previous one. |
+| `parser`    | Pure: `&str -> Option<Message>`. Extracts channel, clan, name, body. Body matchers in order: coordinate pair, named location, none. Entity classifier: keyword lists for vehicle / structure / infantry / other. |
+| `maps`      | Loads `maps/<id>/map.json`. Calibration (two-point affine game→pixel), named locations, tile metadata. |
+| `detect`    | Compares a downscaled full-screen capture with each map thumbnail (normalised cross-correlation). Emits a `MapSuggested` event when confident. Never switches on its own. |
+| `state`     | Immutable snapshot of messages and pins. New snapshot per update. Expiry by age. |
+| `config`    | Persisted settings: monitor, rectangle, fps, OCR engine, pin TTL, selected map. Validated on load with clear errors. |
+| `commands`  | Tauri commands and event emission. Thin. |
+
+Every module returns `Result` with a typed error. Errors are logged with
+context and forwarded to the UI as `StatusEvent { level, text }`. Nothing is
+swallowed.
+
+### Frontend (`src/`)
+
+TypeScript, no framework. Leaflet with a `L.CRS.Simple` map over local tiles.
+
+- `map/`: tile layer, pin layer with type icons, age fade, hover card
+  (reporter, raw line, age).
+- `feed/`: scrolling list of all messages, located ones highlighted, click
+  to centre map.
+- `settings/`: monitor and rectangle picker (live preview of the capture),
+  fps, OCR engine, pin TTL.
+- `calibrate/`: click two points on the map, paste their in-game
+  coordinates, save to `map.json`.
+- `status/`: status bar showing capture rate, OCR latency, last error.
+
+### Data
+
+```ts
+type Message = {
+  id: string; at: number; channel: 'TEAM'|'SQUAD'|'ALL'|'UNKNOWN';
+  clan?: string; name: string; body: string; raw: string;
+  location?: { kind: 'coord'|'named'; x: number; y: number; label?: string };
+  entity: 'vehicle'|'structure'|'infantry'|'other';
+}
+type Pin = { messageId: string; x: number; y: number; entity: Entity; at: number; expiresAt: number }
+```
+
+### Maps on disk
+
+```
+maps/
+  bakurani/
+    source.png          # not committed if licence unclear; documented in SOURCE.md
+    map.json
+    tiles/{z}/{x}/{y}.webp   # generated, gitignored
+    thumb.png           # generated, for detect
+  ozeti/ ...
+  zestafona/ ...
+scripts/tile-maps.mjs   # sharp-based pyramid cutter, 256px tiles
+```
+
+`map.json`:
+
+```json
+{
+  "id": "bakurani", "name": "Bakurani", "sourceSize": [16384, 16384],
+  "calibration": { "a": [[0,0],[0,0]], "b": [[100,100],[16384,16384]] },
+  "places": { "tower 5": [4120, 9930] },
+  "aliases": { "t5": "tower 5" }
+}
+```
+
+Adding a map: add folder, `map.json`, run the tiler. No code changes.
+
+## Error handling
+
+- Capture failure (monitor gone, permission): status bar error, retry with
+  backoff, never crash.
+- OCR engine unavailable: fall back to the other engine, tell the user.
+- Unparseable line: kept in the feed as `UNKNOWN` channel, never dropped.
+- Invalid `map.json`: map listed as unavailable with the validation error.
+
+## Testing
+
+- `parser`, `dedup`, `maps::calibration`, entity classifier: unit tests on
+  fixture files of real chat lines (`fixtures/chat/*.txt`). Property tests
+  for calibration round-trip.
+- `ocr`: golden test against a native-resolution screenshot with expected
+  lines; asserts per-line accuracy above a threshold.
+- `detect`: fixture screenshots of each map's tactical view.
+- Integration: feed a recorded sequence of frames through the pipeline and
+  assert the resulting state.
+- Frontend: Vitest for pin fade and feed logic; one Playwright smoke test.
+- Target 80% coverage on backend logic modules.
+
+## Open items resolved by the first plan tasks
+
+1. **OCR spike (throwaway):** native screenshot, compare Windows OCR vs
+   Tesseract on ~20 lines. Decides default engine. If both are poor, revisit
+   with RapidOCR in a Python sidecar.
+2. **Coordinate range:** confirm 0–100 / origin via calibration on a live
+   match.
+
+## Repo
+
+Public GitHub repo `wardogs-command-hub`, MIT licence, this spec committed
+under `docs/superpowers/specs/`.

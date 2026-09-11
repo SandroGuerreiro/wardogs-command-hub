@@ -1,0 +1,8 @@
+target/
+node_modules/
+dist/
+maps/*/tiles/
+maps/*/thumb.png
+maps/*/source.png
+*.log
+.DS_Store
