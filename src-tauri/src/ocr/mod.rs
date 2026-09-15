@@ -1,4 +1,8 @@
+pub mod models;
+pub mod ocrs_engine;
 pub mod preprocess;
+pub use models::{fetch_models, model_paths};
+pub use ocrs_engine::OcrsEngine;
 pub use preprocess::preprocess;
 
 use std::path::PathBuf;

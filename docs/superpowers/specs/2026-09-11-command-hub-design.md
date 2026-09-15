@@ -172,6 +172,23 @@ Adding a map: add folder, `map.json`, run the tiler. No code changes.
 1. **OCR spike (throwaway):** native screenshot, compare Windows OCR vs
    `ocrs` on ~20 lines. Decides default engine. If both are poor, revisit
    with RapidOCR in a Python sidecar.
+
+   **Result (Task 15, 2026-09-15):** `ocrs` 0.10.4 reads the fixture
+   (`fixtures/screenshots/ingame-chat-1600x900.jpg`, chat rect
+   `20,20,300,110`) almost completely: player name (`leftwild`), the x
+   coordinate (`90.97`), and the trailing text (`tower`) all come through
+   correctly. The y coordinate consistently drops its decimal point —
+   `101.30` is read as `10130` — across every preprocessing scale tried (2,
+   3, 4, 5) and every crop tried (full chat rect, and the tighter
+   `22,24,290,60`). The missing period appears to be an `ocrs` recognition
+   limitation on this small glyph rather than a preprocessing/crop problem,
+   since it reproduces identically regardless of scale or rect. The golden
+   test in `src-tauri/tests/ocr_golden.rs` is committed as originally
+   specified (not weakened) and currently fails on this one assertion. This
+   keeps Windows OCR as the planned default (already the plan) and leaves
+   the door open to a heuristic fix downstream (e.g. re-inserting a decimal
+   point into a 5-digit coordinate token) or a RapidOCR sidecar if `ocrs`
+   proves insufficient on real (non-fixture) captures too.
 2. **Coordinate range:** unknown and per-map. Each map is calibrated on a
    live match via the calibrate screen. An uncalibrated map shows located
    messages in the feed with a "calibrate to place" hint, and no pins.
