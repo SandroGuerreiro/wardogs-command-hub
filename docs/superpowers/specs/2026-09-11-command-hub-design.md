@@ -46,9 +46,9 @@ enemy positions plus a feed of every chat line.
 - Optional clan tag in square brackets before the name.
 - Name terminated by `: `.
 - Mark Coordinates body is a pin emoji (lost in OCR) followed by
-  `x<float>, y<float>`. Range and origin are not documented; default
-  assumption is 0–100 across the full map with y measured from the top,
-  corrected by per-map calibration (see Maps).
+  `x<float>, y<float>`. Range and origin are not documented and map sizes
+  vary, so the numeric range differs per map. Per-map calibration is
+  therefore mandatory (see Maps); the app never assumes a range.
 - Lines wrap on screen; a wrapped continuation has no channel prefix.
 
 ## Architecture
@@ -128,7 +128,8 @@ scripts/tile-maps.mjs   # sharp-based pyramid cutter, 256px tiles
 ```json
 {
   "id": "bakurani", "name": "Bakurani", "sourceSize": [16384, 16384],
-  "calibration": { "a": [[0,0],[0,0]], "b": [[100,100],[16384,16384]] },
+  "calibration": null,
+  "_calibration_example": { "a": { "game": [12.5, 40.0], "px": [2048, 6553] }, "b": { "game": [88.0, 90.0], "px": [14418, 14745] } },
   "places": { "tower 5": [4120, 9930] },
   "aliases": { "t5": "tower 5" }
 }
