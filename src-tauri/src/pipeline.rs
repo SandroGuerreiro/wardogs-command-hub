@@ -1,7 +1,7 @@
 use crate::dedup::Deduper;
 use crate::gate::FrameGate;
 use crate::ocr::{preprocess, OcrEngine, OcrError};
-use crate::parser::{parse_header, parse_message, Message, PlaceIndex};
+use crate::parser::{parse_message, Message, PlaceIndex};
 use image::RgbaImage;
 
 /// Mean luma difference (0..255) below which a frame is considered unchanged.
@@ -52,23 +52,10 @@ impl Pipeline {
             .into_iter()
             .map(|l| l.text)
             .collect();
-        let fresh = self.fresh_lines(&lines);
+        let fresh = self.dedup.push(&lines);
         Ok(fresh
             .iter()
             .map(|raw| parse_message(raw, &self.places, now_ms))
             .collect())
-    }
-
-    /// Runs cross-frame dedup for headed chat lines. A frame with no headed
-    /// line at all (pure OCR noise, no `[CHANNEL] name:` anywhere) has no
-    /// stable identity for `Deduper`'s continuation-joining to key off, so
-    /// it always gets dropped as an orphan continuation. Surface it as-is
-    /// instead of silently losing it.
-    fn fresh_lines(&mut self, lines: &[String]) -> Vec<String> {
-        if lines.iter().any(|l| parse_header(l).is_some()) {
-            self.dedup.push(lines)
-        } else {
-            lines.to_vec()
-        }
     }
 }
