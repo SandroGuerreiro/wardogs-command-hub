@@ -6,3 +6,6 @@ maps/*/thumb.png
 maps/*/source.png
 *.log
 .DS_Store
+.superpowers/
+src-tauri/target/
+models/
