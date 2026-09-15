@@ -23,7 +23,10 @@ const INFANTRY: &[&str] = &[
 fn has_keyword(words: &[String], list: &[&str]) -> bool {
     list.iter().any(|k| {
         if k.contains(' ') {
-            words.join(" ").contains(k)
+            let k_tokens: Vec<&str> = k.split_whitespace().collect();
+            words.windows(k_tokens.len()).any(|w| {
+                w.iter().map(|s| s.as_str()).collect::<Vec<_>>() == k_tokens
+            })
         } else {
             words.iter().any(|w| w == k)
         }
@@ -31,7 +34,7 @@ fn has_keyword(words: &[String], list: &[&str]) -> bool {
 }
 
 /// Classify what a chat body is reporting. Checked in priority order:
-/// vehicle, then structure, then infantry. Structure words like "tower" are
+/// vehicle, then infantry, then structure. Structure words like "tower" are
 /// only structural when no infantry word accompanies them, since "one is in
 /// tower 5" reports infantry at a tower.
 pub fn classify_entity(body: &str) -> Entity {
@@ -89,5 +92,15 @@ mod tests {
     fn first_category_by_priority_wins() {
         // "tank" (vehicle) beats "guys" (infantry) because vehicle keywords are checked first
         assert_eq!(classify_entity("tank with guys around"), Entity::Vehicle);
+    }
+
+    #[test]
+    fn multi_word_keyword_matching() {
+        // "artillery" alone is not a keyword, so it's Other
+        assert_eq!(classify_entity("artillery"), Entity::Other);
+        // "artillery truck" is an exact multi-word match, so it's Vehicle
+        assert_eq!(classify_entity("artillery truck"), Entity::Vehicle);
+        // "artillery trucks" doesn't match "artillery truck" (trucks != truck), so it's Other
+        assert_eq!(classify_entity("artillery trucks"), Entity::Other);
     }
 }
