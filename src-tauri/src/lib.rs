@@ -7,4 +7,5 @@ pub mod gate;
 pub mod maps;
 pub mod ocr;
 pub mod parser;
+pub mod pipeline;
 pub mod state;
