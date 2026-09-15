@@ -49,7 +49,16 @@ enemy positions plus a feed of every chat line.
   `x<float>, y<float>`. Range and origin are not documented and map sizes
   vary, so the numeric range differs per map. Per-map calibration is
   therefore mandatory (see Maps); the app never assumes a range.
+- A Mark Coordinates line can carry trailing free text:
+  `📍 x90.97, y101.30 need ammo here for tower 1`. Coordinates above 100
+  have been observed, confirming the range is per-map.
 - Lines wrap on screen; a wrapped continuation has no channel prefix.
+- The chat box sits top-left, is small and semi-transparent over the scene,
+  and disappears after a few seconds without new messages. Capture must
+  therefore run continuously; every line is seen on several frames before
+  it fades. OCR pre-processing (upscale, greyscale, contrast) is required.
+- Fixtures: `fixtures/screenshots/ingame-chat-1600x900.jpg` and
+  `fixtures/chat/sample-01.txt`.
 
 ## Architecture
 
