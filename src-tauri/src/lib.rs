@@ -4,3 +4,4 @@ pub mod config;
 pub mod dedup;
 pub mod maps;
 pub mod parser;
+pub mod state;
