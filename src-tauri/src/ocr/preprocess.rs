@@ -1,17 +1,18 @@
 use image::{imageops, GrayImage, RgbaImage};
 
+/// Calculate scaled dimensions using saturating multiplication to prevent overflow.
+fn scaled_dims(w: u32, h: u32, scale: u32) -> (u32, u32) {
+    (w.saturating_mul(scale), h.saturating_mul(scale))
+}
+
 /// Upscale, convert to grey and stretch contrast to the full 0..255 range.
 /// The chat font is light on a translucent dark box, so no inversion is
 /// applied; OCR engines handle light-on-dark fine once contrast is high.
 pub fn preprocess(frame: &RgbaImage, scale: u32) -> GrayImage {
     let scale = scale.max(1);
     let (w, h) = frame.dimensions();
-    let big = imageops::resize(
-        frame,
-        w * scale,
-        h * scale,
-        imageops::FilterType::CatmullRom,
-    );
+    let (scaled_w, scaled_h) = scaled_dims(w, h, scale);
+    let big = imageops::resize(frame, scaled_w, scaled_h, imageops::FilterType::CatmullRom);
     let grey = imageops::grayscale(&big);
     stretch_contrast(&grey)
 }
@@ -55,5 +56,10 @@ mod tests {
     fn scale_zero_is_treated_as_one() {
         let f = RgbaImage::from_pixel(10, 10, Rgba([0, 0, 0, 255]));
         assert_eq!(preprocess(&f, 0).dimensions(), (10, 10));
+    }
+
+    #[test]
+    fn huge_scale_saturates_instead_of_wrapping() {
+        assert_eq!(scaled_dims(u32::MAX, 2, 3), (u32::MAX, 6));
     }
 }
