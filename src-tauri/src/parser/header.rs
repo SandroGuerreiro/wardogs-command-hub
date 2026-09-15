@@ -48,7 +48,11 @@ pub fn parse_header(raw: &str) -> Option<Header> {
         channel: channel_from(caps.get(1)?.as_str()),
         clan: caps.get(2).map(|m| m.as_str().to_string()),
         name: name.to_string(),
-        body: caps.get(4).map(|m| m.as_str().trim_end()).unwrap_or("").to_string(),
+        body: caps
+            .get(4)
+            .map(|m| m.as_str().trim_end())
+            .unwrap_or("")
+            .to_string(),
     })
 }
 
@@ -74,7 +78,10 @@ mod tests {
 
     #[test]
     fn squad_and_all_channels() {
-        assert_eq!(parse_header("[SQUAD] a: b").unwrap().channel, Channel::Squad);
+        assert_eq!(
+            parse_header("[SQUAD] a: b").unwrap().channel,
+            Channel::Squad
+        );
         assert_eq!(parse_header("[ALL] a: b").unwrap().channel, Channel::All);
     }
 

@@ -53,7 +53,13 @@ mod tests {
     #[test]
     fn pair_with_trailing_text_and_lost_emoji() {
         let m = find_coords("x90.97, y101.30 need ammo here for tower 1").unwrap();
-        assert_eq!(m.coord, Coord { x: 90.97, y: 101.30 });
+        assert_eq!(
+            m.coord,
+            Coord {
+                x: 90.97,
+                y: 101.30
+            }
+        );
         assert_eq!(m.rest, "need ammo here for tower 1");
     }
 
@@ -61,7 +67,10 @@ mod tests {
     fn ocr_variants() {
         assert!(find_coords("X 12.5 , Y 7").is_some());
         assert!(find_coords("x12,5; y7,25").is_some()); // decimal comma
-        assert_eq!(find_coords("x12,5; y7,25").unwrap().coord, Coord { x: 12.5, y: 7.25 });
+        assert_eq!(
+            find_coords("x12,5; y7,25").unwrap().coord,
+            Coord { x: 12.5, y: 7.25 }
+        );
     }
 
     #[test]

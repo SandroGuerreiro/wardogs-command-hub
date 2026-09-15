@@ -3,7 +3,10 @@ use std::collections::VecDeque;
 
 /// Lowercase, trim, collapse whitespace. Used only for equality, never shown.
 pub fn normalise_line(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 /// Joins wrapped continuation lines (no `[CHANNEL] name:` header) onto the
@@ -31,7 +34,10 @@ pub struct Deduper {
 
 impl Deduper {
     pub fn new(capacity: usize) -> Self {
-        Self { seen: VecDeque::with_capacity(capacity), capacity: capacity.max(1) }
+        Self {
+            seen: VecDeque::with_capacity(capacity),
+            capacity: capacity.max(1),
+        }
     }
 
     pub fn push(&mut self, frame_lines: &[String]) -> Vec<String> {
@@ -95,8 +101,14 @@ mod tests {
     #[test]
     fn wrapped_continuation_is_joined_to_previous() {
         let mut d = Deduper::new(50);
-        let out = d.push(&lines(&["[TEAM] LeftWild: x90.97, y101.30 need ammo here for", "tower 1"]));
-        assert_eq!(out, lines(&["[TEAM] LeftWild: x90.97, y101.30 need ammo here for tower 1"]));
+        let out = d.push(&lines(&[
+            "[TEAM] LeftWild: x90.97, y101.30 need ammo here for",
+            "tower 1",
+        ]));
+        assert_eq!(
+            out,
+            lines(&["[TEAM] LeftWild: x90.97, y101.30 need ammo here for tower 1"])
+        );
     }
 
     #[test]
@@ -118,6 +130,9 @@ mod tests {
 
     #[test]
     fn normalise_collapses() {
-        assert_eq!(normalise_line("  [TEAM]  A:  Hi  There "), "[team] a: hi there");
+        assert_eq!(
+            normalise_line("  [TEAM]  A:  Hi  There "),
+            "[team] a: hi there"
+        );
     }
 }

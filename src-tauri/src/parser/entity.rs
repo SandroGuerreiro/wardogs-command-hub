@@ -8,12 +8,44 @@ pub enum Entity {
 }
 
 const VEHICLE: &[&str] = &[
-    "tank", "apc", "ifv", "heli", "helicopter", "chopper", "truck", "jeep", "humvee", "car",
-    "vehicle", "vic", "bike", "boat", "mrap", "btr", "bmp", "sph", "artillery truck",
+    "tank",
+    "apc",
+    "ifv",
+    "heli",
+    "helicopter",
+    "chopper",
+    "truck",
+    "jeep",
+    "humvee",
+    "car",
+    "vehicle",
+    "vic",
+    "bike",
+    "boat",
+    "mrap",
+    "btr",
+    "bmp",
+    "sph",
+    "artillery truck",
 ];
 const STRUCTURE: &[&str] = &[
-    "bunker", "fob", "hab", "mortar", "turret", "aa", "wall", "walls", "gate",
-    "radio", "outpost", "emplacement", "sandbag", "hesco", "spawn", "structure", "building",
+    "bunker",
+    "fob",
+    "hab",
+    "mortar",
+    "turret",
+    "aa",
+    "wall",
+    "walls",
+    "gate",
+    "radio",
+    "outpost",
+    "emplacement",
+    "sandbag",
+    "hesco",
+    "spawn",
+    "structure",
+    "building",
 ];
 const INFANTRY: &[&str] = &[
     "sniper", "guy", "guys", "man", "men", "inf", "infantry", "squad", "enemy", "enemys",
@@ -24,9 +56,9 @@ fn has_keyword(words: &[String], list: &[&str]) -> bool {
     list.iter().any(|k| {
         if k.contains(' ') {
             let k_tokens: Vec<&str> = k.split_whitespace().collect();
-            words.windows(k_tokens.len()).any(|w| {
-                w.iter().map(|s| s.as_str()).collect::<Vec<_>>() == k_tokens
-            })
+            words
+                .windows(k_tokens.len())
+                .any(|w| w.iter().map(|s| s.as_str()).collect::<Vec<_>>() == k_tokens)
         } else {
             words.iter().any(|w| w == k)
         }
@@ -62,28 +94,49 @@ mod tests {
 
     #[test]
     fn vehicles() {
-        for s in ["enemy tank on the ridge", "APC coming", "heli over tower 2", "truck at bridge", "jeep"] {
+        for s in [
+            "enemy tank on the ridge",
+            "APC coming",
+            "heli over tower 2",
+            "truck at bridge",
+            "jeep",
+        ] {
             assert_eq!(classify_entity(s), Entity::Vehicle, "{s}");
         }
     }
 
     #[test]
     fn structures() {
-        for s in ["they built a bunker", "fob built here", "mortar pit at x", "AA turret", "walls going up"] {
+        for s in [
+            "they built a bunker",
+            "fob built here",
+            "mortar pit at x",
+            "AA turret",
+            "walls going up",
+        ] {
             assert_eq!(classify_entity(s), Entity::Structure, "{s}");
         }
     }
 
     #[test]
     fn infantry() {
-        for s in ["one is in tower 5", "sniper on hill", "3 guys pushing", "squad flanking left", "enemys in there"] {
+        for s in [
+            "one is in tower 5",
+            "sniper on hill",
+            "3 guys pushing",
+            "squad flanking left",
+            "enemys in there",
+        ] {
             assert_eq!(classify_entity(s), Entity::Infantry, "{s}");
         }
     }
 
     #[test]
     fn other() {
-        assert_eq!(classify_entity("supplies delivered to tower 5"), Entity::Other);
+        assert_eq!(
+            classify_entity("supplies delivered to tower 5"),
+            Entity::Other
+        );
         assert_eq!(classify_entity("need ammo here"), Entity::Other);
         assert_eq!(classify_entity(""), Entity::Other);
     }
