@@ -12,6 +12,8 @@ const DEFAULT_SCALE: u32 = 3;
 const DEFAULT_FPS: f32 = 2.0;
 const DEFAULT_UPSCALE: u32 = 3;
 const MAX_MESSAGES: usize = 500;
+const MAX_BACKOFF: Duration = Duration::from_secs(5);
+const MAX_BACKOFF_EXPONENT: u32 = 16;
 
 fn usage() -> ! {
     eprintln!("usage: hub-cli fetch-models | ocr <image> [x y w h] | watch [settings.json]");
@@ -53,6 +55,18 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Backoff after `consecutive_errors` failed ticks: `base` doubled per error,
+/// capped at `MAX_BACKOFF`. The exponent is capped before shifting so a huge
+/// error count can't overflow.
+pub fn backoff_for(base: Duration, consecutive_errors: u32) -> Duration {
+    if consecutive_errors == 0 {
+        return base;
+    }
+    let exponent = consecutive_errors.min(MAX_BACKOFF_EXPONENT);
+    let factor = 1u64.checked_shl(exponent).unwrap_or(u64::MAX);
+    base.saturating_mul(factor as u32).min(MAX_BACKOFF)
 }
 
 /// Pieces needed to drive the watch loop, built once from settings/maps.
@@ -104,8 +118,20 @@ fn setup_watch(settings_path: &Path) -> anyhow::Result<WatchContext> {
     })
 }
 
+/// Prints `frame error: {e}` only when the message text differs from
+/// `last_error`, then stores it. Returns the updated `last_error`.
+fn log_error_once(e: &anyhow::Error, last_error: Option<String>) -> Option<String> {
+    let text = e.to_string();
+    if last_error.as_deref() != Some(text.as_str()) {
+        eprintln!("frame error: {text}");
+    }
+    Some(text)
+}
+
 fn watch_loop(ctx: &mut WatchContext) -> anyhow::Result<()> {
     let mut snapshot = Snapshot::default();
+    let mut consecutive_errors: u32 = 0;
+    let mut last_error: Option<String> = None;
     loop {
         let started = Instant::now();
         let now = now_ms();
@@ -116,16 +142,22 @@ fn watch_loop(ctx: &mut WatchContext) -> anyhow::Result<()> {
             .and_then(|f| ctx.pipeline.tick(&f, now).map_err(anyhow::Error::from))
         {
             Ok(messages) => {
+                consecutive_errors = 0;
+                last_error = None;
                 for m in messages {
                     println!("{}", serde_json::to_string(&m)?);
                     snapshot = apply(&snapshot, m, ctx.map.as_ref(), ctx.ttl_ms, MAX_MESSAGES);
                 }
+                snapshot = expire(&snapshot, now);
+                eprintln!("pins: {}", snapshot.pins.len());
             }
-            Err(e) => eprintln!("frame error: {e}"),
+            Err(e) => {
+                consecutive_errors = consecutive_errors.saturating_add(1);
+                last_error = log_error_once(&e, last_error);
+            }
         }
-        snapshot = expire(&snapshot, now);
-        eprintln!("pins: {}", snapshot.pins.len());
-        std::thread::sleep(ctx.interval.saturating_sub(started.elapsed()));
+        let sleep_for = backoff_for(ctx.interval, consecutive_errors);
+        std::thread::sleep(sleep_for.saturating_sub(started.elapsed()));
     }
 }
 
@@ -163,5 +195,15 @@ mod tests {
     fn sleep_for_fps() {
         assert_eq!(frame_interval(2.0), std::time::Duration::from_millis(500));
         assert_eq!(frame_interval(0.0), std::time::Duration::from_millis(500)); // guards div by zero
+    }
+
+    #[test]
+    fn backoff_doubles_and_caps() {
+        let base = Duration::from_millis(500);
+        assert_eq!(backoff_for(base, 0), Duration::from_millis(500));
+        assert_eq!(backoff_for(base, 1), Duration::from_secs(1));
+        assert_eq!(backoff_for(base, 3), Duration::from_secs(4));
+        assert_eq!(backoff_for(base, 4), Duration::from_secs(5));
+        assert_eq!(backoff_for(base, u32::MAX), Duration::from_secs(5));
     }
 }
