@@ -6,3 +6,6 @@ pub use coords::{find_coords, Coord, CoordMatch};
 
 pub mod entity;
 pub use entity::{classify_entity, Entity};
+
+pub mod places;
+pub use places::{PlaceIndex, PlaceMatch};
