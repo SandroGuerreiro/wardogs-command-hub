@@ -75,10 +75,7 @@ mod tests {
     #[test]
     fn missing_models_yields_model_missing_error() {
         let dir = std::env::temp_dir().join(format!("hub-ocr-missing-{}", std::process::id()));
-        match OcrsEngine::load(&dir) {
-            Err(OcrError::ModelMissing(_)) => {}
-            Err(other) => panic!("expected ModelMissing, got {other:?}"),
-            Ok(_) => panic!("expected ModelMissing, got Ok"),
-        }
+        let res = OcrsEngine::load(&dir);
+        assert!(matches!(res, Err(OcrError::ModelMissing(_))));
     }
 }

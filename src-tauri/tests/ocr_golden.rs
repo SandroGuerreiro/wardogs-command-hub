@@ -29,20 +29,23 @@ fn reads_coordinates_from_fixture_screenshot() {
     .unwrap();
     let engine = OcrsEngine::load(&models_dir()).unwrap();
     let lines = engine.read(&preprocess(&chat, 3)).unwrap();
-    let joined = lines
-        .iter()
-        .map(|l| l.text.to_lowercase())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let lower: Vec<String> = lines.iter().map(|l| l.text.to_lowercase()).collect();
+    let joined = lower.join("\n");
     eprintln!("OCR:\n{joined}");
     assert!(joined.contains("leftwild"), "player name not read");
-    assert!(
-        joined.contains("90.97") || joined.contains("90,97"),
-        "x coordinate not read"
-    );
-    assert!(
-        joined.contains("101.30") || joined.contains("101,30"),
-        "y coordinate not read"
-    );
     assert!(joined.contains("tower"), "trailing text not read");
+
+    let joined_for_parsing = lower.join(" ");
+    let coord = wardogs_command_hub::parser::find_coords(&joined_for_parsing)
+        .expect("coordinate pair not found");
+    assert!(
+        (coord.coord.x - 90.97).abs() < 1e-6,
+        "x coordinate not parsed correctly: {:?}",
+        coord.coord
+    );
+    assert!(
+        (coord.coord.y - 101.30).abs() < 1e-6,
+        "y coordinate not parsed correctly: {:?}",
+        coord.coord
+    );
 }
