@@ -163,8 +163,9 @@ Adding a map: add folder, `map.json`, run the tiler. No code changes.
 1. **OCR spike (throwaway):** native screenshot, compare Windows OCR vs
    Tesseract on ~20 lines. Decides default engine. If both are poor, revisit
    with RapidOCR in a Python sidecar.
-2. **Coordinate range:** confirm 0–100 / origin via calibration on a live
-   match.
+2. **Coordinate range:** unknown and per-map. Each map is calibrated on a
+   live match via the calibrate screen. An uncalibrated map shows located
+   messages in the feed with a "calibrate to place" hint, and no pins.
 
 ## Repo
 
