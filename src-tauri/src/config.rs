@@ -117,30 +117,61 @@ mod tests {
 
     #[test]
     fn rejects_zero_rect_and_silly_fps() {
-        let mut s = Settings::default();
-        s.chat_rect = Rect {
-            x: 0,
-            y: 0,
-            w: 0,
-            h: 10,
+        let s = Settings {
+            chat_rect: Rect {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 10,
+            },
+            ..Settings::default()
         };
         assert!(matches!(s.validate(), Err(ConfigError::Invalid(_))));
-        let mut s = Settings::default();
-        s.capture_fps = 0.0;
+        let s = Settings {
+            capture_fps: 0.0,
+            ..Settings::default()
+        };
         assert!(s.validate().is_err());
-        s.capture_fps = 61.0;
+        let s = Settings {
+            capture_fps: 61.0,
+            ..Settings::default()
+        };
         assert!(s.validate().is_err());
     }
 
     #[test]
     fn round_trips_through_file() {
         let p = std::env::temp_dir().join(format!("hub-settings-{}.json", std::process::id()));
-        let mut s = Settings::default();
-        s.selected_map = Some("ozeti".into());
+        let s = Settings {
+            selected_map: Some("ozeti".into()),
+            ..Settings::default()
+        };
         s.save(&p).unwrap();
         let back = Settings::load(&p).unwrap();
         assert_eq!(back, s);
         std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn save_creates_missing_parent_dirs() {
+        let dir = std::env::temp_dir().join(format!("hub-settings-dir-{}", std::process::id()));
+        let p = dir.join("nested/settings.json");
+        assert!(!dir.exists());
+        Settings::default().save(&p).unwrap();
+        assert!(p.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_rejects_invalid_settings_without_writing() {
+        let p =
+            std::env::temp_dir().join(format!("hub-settings-invalid-{}.json", std::process::id()));
+        let s = Settings {
+            pin_ttl_secs: 0,
+            ..Settings::default()
+        };
+        assert!(matches!(s.save(&p), Err(ConfigError::Invalid(_))));
+        assert!(!p.exists());
     }
 
     #[test]

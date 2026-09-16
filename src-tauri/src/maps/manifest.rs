@@ -199,6 +199,17 @@ mod tests {
     }
 
     #[test]
+    fn registry_reports_io_error_when_map_json_missing() {
+        let tmp = std::env::temp_dir().join(format!("hub-maps-noio-{}", std::process::id()));
+        std::fs::create_dir_all(tmp.join("empty")).unwrap();
+        let reg = MapRegistry::load_dir(&tmp).unwrap();
+        assert!(reg.maps.is_empty());
+        let err = reg.errors.get("empty").expect("empty folder should error");
+        assert!(err.contains("io error"), "unexpected error: {err}");
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
     fn registry_collects_errors_without_failing() {
         let tmp = std::env::temp_dir().join(format!("hub-maps-{}", std::process::id()));
         std::fs::create_dir_all(tmp.join("broken")).unwrap();
