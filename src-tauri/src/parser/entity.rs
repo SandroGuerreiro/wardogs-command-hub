@@ -66,9 +66,10 @@ fn has_keyword(words: &[String], list: &[&str]) -> bool {
 }
 
 /// Classify what a chat body is reporting. Checked in priority order:
-/// vehicle, then infantry, then structure. Structure words like "tower" are
-/// only structural when no infantry word accompanies them, since "one is in
-/// tower 5" reports infantry at a tower.
+/// vehicle, then structure, then infantry. Reports like "enemy fob here"
+/// mention infantry ("enemy") and a structure ("fob") together; the
+/// structure wins because it is the more specific report. "one is in tower
+/// 5" stays Infantry because no structure word is present.
 pub fn classify_entity(body: &str) -> Entity {
     let words: Vec<String> = body
         .to_lowercase()
@@ -79,11 +80,11 @@ pub fn classify_entity(body: &str) -> Entity {
     if has_keyword(&words, VEHICLE) {
         return Entity::Vehicle;
     }
-    let infantry = has_keyword(&words, INFANTRY);
     let structure = has_keyword(&words, STRUCTURE);
-    match (infantry, structure) {
-        (true, _) => Entity::Infantry,
-        (false, true) => Entity::Structure,
+    let infantry = has_keyword(&words, INFANTRY);
+    match (structure, infantry) {
+        (true, _) => Entity::Structure,
+        (false, true) => Entity::Infantry,
         (false, false) => Entity::Other,
     }
 }
@@ -113,6 +114,8 @@ mod tests {
             "mortar pit at x",
             "AA turret",
             "walls going up",
+            "enemy fob here",
+            "enemy bunker",
         ] {
             assert_eq!(classify_entity(s), Entity::Structure, "{s}");
         }

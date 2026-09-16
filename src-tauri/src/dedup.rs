@@ -22,15 +22,27 @@ fn is_noise(line: &str) -> bool {
 /// leading continuation with no parent is dropped (it is presumed to be the
 /// tail of an already-scrolled-off message). If the frame has no headed line
 /// at all, every line is kept standalone — there is no header context to
-/// join against, so each line is passed through as-is for normal dedup.
+/// join against, so each line is passed through the noise filter and kept
+/// for normal dedup.
+///
+/// A short line that directly follows a headed line is exempt from the
+/// noise filter: it is presumed to be a wrapped continuation fragment (e.g.
+/// "5" wrapping from "...go to tower") rather than OCR noise. A short line
+/// with no preceding headed line to join is still dropped either way, since
+/// it has nothing to attach to.
 fn join_wrapped(frame_lines: &[String]) -> Vec<String> {
     if frame_lines.iter().all(|l| parse_header(l).is_none()) {
-        return frame_lines.to_vec();
+        return frame_lines
+            .iter()
+            .filter(|l| !is_noise(l))
+            .cloned()
+            .collect();
     }
     frame_lines.iter().fold(Vec::new(), |mut acc, line| {
         let is_headed = parse_header(line).is_some();
         match (is_headed, acc.last_mut()) {
-            (true, _) => acc.push(line.trim().to_string()),
+            (true, _) if !is_noise(line) => acc.push(line.trim().to_string()),
+            (true, _) => {}
             (false, Some(prev)) => {
                 let joined = format!("{} {}", prev.trim_end(), line.trim());
                 *prev = joined;
@@ -56,13 +68,8 @@ impl Deduper {
     }
 
     pub fn push(&mut self, frame_lines: &[String]) -> Vec<String> {
-        let non_noise: Vec<String> = frame_lines
-            .iter()
-            .filter(|l| !is_noise(l))
-            .cloned()
-            .collect();
         let mut fresh = Vec::new();
-        for line in join_wrapped(&non_noise) {
+        for line in join_wrapped(frame_lines) {
             let key = normalise_line(&line);
             if key.is_empty() || self.seen.contains(&key) {
                 continue;
@@ -140,10 +147,21 @@ mod tests {
     }
 
     #[test]
-    fn noise_lines_are_dropped() {
+    fn leading_standalone_noise_is_dropped() {
         let mut d = Deduper::new(50);
-        let out = d.push(&lines(&["a", "[TEAM] x: hi", "n"]));
+        let out = d.push(&lines(&["a", "[TEAM] x: hi"]));
         assert_eq!(out, lines(&["[TEAM] x: hi"]));
+    }
+
+    #[test]
+    fn short_line_following_headed_line_is_a_continuation_not_noise() {
+        let mut d = Deduper::new(50);
+        let out = d.push(&lines(&["[TEAM] a: go to tower", "5"]));
+        assert_eq!(out, lines(&["[TEAM] a: go to tower 5"]));
+
+        let mut d2 = Deduper::new(50);
+        let out2 = d2.push(&lines(&["a", "[TEAM] x: hi"]));
+        assert_eq!(out2, lines(&["[TEAM] x: hi"]));
     }
 
     #[test]

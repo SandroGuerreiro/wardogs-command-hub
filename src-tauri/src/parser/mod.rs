@@ -38,9 +38,15 @@ pub struct Message {
     pub entity: Entity,
 }
 
-fn stable_id(raw: &str) -> String {
+/// Derives an id from `raw` and `at_ms` so a line re-seen after ring
+/// eviction (same text, later timestamp) gets a distinct id rather than
+/// colliding with the earlier message. These ids are in-session only:
+/// `DefaultHasher` is not guaranteed stable across Rust toolchains or runs,
+/// so they must never be persisted or compared across process restarts.
+fn stable_id(raw: &str, at_ms: u64) -> String {
     let mut h = DefaultHasher::new();
     raw.hash(&mut h);
+    at_ms.hash(&mut h);
     format!("{:016x}", h.finish())
 }
 
@@ -76,7 +82,7 @@ pub fn parse_message(raw: &str, places: &PlaceIndex, at_ms: u64) -> Message {
     let (location, body) = locate(&header.body, places);
     let entity = classify_entity(&body);
     Message {
-        id: stable_id(raw),
+        id: stable_id(raw, at_ms),
         at_ms,
         channel: header.channel,
         clan: header.clan,
@@ -146,10 +152,17 @@ mod tests {
     }
 
     #[test]
-    fn id_is_stable_for_same_raw() {
+    fn id_is_stable_for_same_raw_and_at_ms() {
         let a = parse_message("[TEAM] a: b", &places(), 1);
-        let b = parse_message("[TEAM] a: b", &places(), 2);
+        let b = parse_message("[TEAM] a: b", &places(), 1);
         assert_eq!(a.id, b.id);
         assert_ne!(a.id, parse_message("[TEAM] a: c", &places(), 1).id);
+    }
+
+    #[test]
+    fn id_differs_for_same_raw_different_at_ms() {
+        let a = parse_message("[TEAM] a: b", &places(), 1);
+        let b = parse_message("[TEAM] a: b", &places(), 2);
+        assert_ne!(a.id, b.id);
     }
 }
