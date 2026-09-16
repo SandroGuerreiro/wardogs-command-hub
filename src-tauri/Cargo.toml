@@ -1,0 +1,27 @@
+[package]
+name = "wardogs_command_hub"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "hub-cli"
+path = "src/bin/hub_cli.rs"
+
+[dependencies]
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+xcap = "0.4"
+ocrs = "0.10"
+rten = "0.21"
+anyhow = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+proptest = "1"
