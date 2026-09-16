@@ -26,7 +26,7 @@ pub enum OcrEngineKind {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct Settings {
     pub monitor_index: usize,
     pub chat_rect: Rect,
@@ -176,8 +176,20 @@ mod tests {
 
     #[test]
     fn missing_file_yields_defaults() {
-        let p = std::env::temp_dir().join("hub-settings-definitely-missing.json");
+        let p = std::env::temp_dir().join(format!(
+            "hub-settings-definitely-missing-{}.json",
+            std::process::id()
+        ));
         assert_eq!(Settings::load(&p).unwrap(), Settings::default());
+    }
+
+    #[test]
+    fn unknown_field_is_rejected() {
+        let p =
+            std::env::temp_dir().join(format!("hub-settings-unknown-{}.json", std::process::id()));
+        std::fs::write(&p, r#"{"bogusField": true}"#).unwrap();
+        assert!(matches!(Settings::load(&p), Err(ConfigError::Json(_))));
+        std::fs::remove_file(p).unwrap();
     }
 
     #[test]

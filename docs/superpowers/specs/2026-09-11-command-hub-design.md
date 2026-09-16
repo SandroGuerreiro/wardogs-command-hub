@@ -134,12 +134,13 @@ scripts/tile-maps.mjs   # sharp-based pyramid cutter, 256px tiles
 
 `map.json`:
 
+// Example calibration shape (unused here since calibration is null):
+// "calibration": { "a": { "game": [12.5, 40.0], "px": [2048, 6553] }, "b": { "game": [88.0, 90.0], "px": [14418, 14745] } }
 ```json
 {
   "id": "bakurani", "name": "Bakurani", "sourceSize": [16384, 16384],
   "calibration": null,
-  "_calibration_example": { "a": { "game": [12.5, 40.0], "px": [2048, 6553] }, "b": { "game": [88.0, 90.0], "px": [14418, 14745] } },
-  "places": { "tower 5": [4120, 9930] },
+  "places": { "tower 5": {"x": 41.2, "y": 99.3} },
   "aliases": { "t5": "tower 5" }
 }
 ```

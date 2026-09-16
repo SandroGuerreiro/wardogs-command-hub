@@ -14,7 +14,7 @@ pub enum ManifestError {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MapManifest {
     pub id: String,
     pub name: String,
@@ -97,6 +97,12 @@ impl MapRegistry {
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
             match load_one(&path) {
+                Ok(m) if m.id != folder => {
+                    reg.errors.insert(
+                        folder.clone(),
+                        format!("id '{}' does not match folder '{folder}'", m.id),
+                    );
+                }
                 Ok(m) => {
                     reg.maps.insert(m.id.clone(), m);
                 }
@@ -181,6 +187,16 @@ mod tests {
     }
 
     #[test]
+    fn unknown_field_is_rejected() {
+        assert!(matches!(
+            MapManifest::from_json(
+                r#"{"id":"x","name":"X","sourceSize":[10,10],"bogusField":true}"#
+            ),
+            Err(ManifestError::Json(_))
+        ));
+    }
+
+    #[test]
     fn malformed_json_is_json_error() {
         assert!(matches!(
             MapManifest::from_json("{"),
@@ -206,6 +222,28 @@ mod tests {
         assert!(reg.maps.is_empty());
         let err = reg.errors.get("empty").expect("empty folder should error");
         assert!(err.contains("io error"), "unexpected error: {err}");
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn registry_skips_and_reports_id_folder_mismatch() {
+        let tmp = std::env::temp_dir().join(format!("hub-maps-mismatch-{}", std::process::id()));
+        std::fs::create_dir_all(tmp.join("folder-name")).unwrap();
+        std::fs::write(
+            tmp.join("folder-name/map.json"),
+            r#"{"id":"other-id","name":"X","sourceSize":[10,10]}"#,
+        )
+        .unwrap();
+        let reg = MapRegistry::load_dir(&tmp).unwrap();
+        assert!(reg.maps.is_empty());
+        let err = reg
+            .errors
+            .get("folder-name")
+            .expect("mismatched id should be reported");
+        assert!(
+            err.contains("other-id") && err.contains("folder-name"),
+            "{err}"
+        );
         std::fs::remove_dir_all(tmp).unwrap();
     }
 
