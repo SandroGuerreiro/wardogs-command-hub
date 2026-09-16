@@ -21,6 +21,17 @@ fn mean_abs_diff(a: &[u8], b: &[u8]) -> f32 {
     sum as f32 / a.len().max(1) as f32
 }
 
+/// Maximum per-row mean absolute difference, one row at a time. A change
+/// localized to a single thumbnail row (e.g. one new chat line among 8 rows
+/// of thumbnail) can be diluted below threshold by the global mean; taking
+/// the max across rows catches it instead.
+fn max_row_mean_abs_diff(a: &[u8], b: &[u8], row_width: usize) -> f32 {
+    a.chunks(row_width.max(1))
+        .zip(b.chunks(row_width.max(1)))
+        .map(|(ra, rb)| mean_abs_diff(ra, rb))
+        .fold(0.0, f32::max)
+}
+
 /// Skips OCR when the chat rectangle has not visibly changed.
 #[derive(Debug)]
 pub struct FrameGate {
@@ -36,14 +47,31 @@ impl FrameGate {
         }
     }
 
-    pub fn changed(&mut self, frame: &RgbaImage) -> bool {
+    /// True when `frame` differs enough from the last *committed* reference
+    /// to warrant OCR. Does not update the reference; call `commit` after a
+    /// successful read so a failed OCR attempt doesn't silently adopt a
+    /// changed-but-unprocessed frame as the new baseline.
+    pub fn peek(&self, frame: &RgbaImage) -> bool {
         let now = thumb_luma(frame);
-        let changed = match &self.last {
+        match &self.last {
             None => true,
-            Some(prev) => mean_abs_diff(prev, &now) >= self.threshold,
-        };
+            Some(prev) => max_row_mean_abs_diff(prev, &now, THUMB_W as usize) >= self.threshold,
+        }
+    }
+
+    /// Adopts `frame` as the new reference for future `peek`/`changed` calls.
+    pub fn commit(&mut self, frame: &RgbaImage) {
+        self.last = Some(thumb_luma(frame));
+    }
+
+    /// Convenience combining `peek` + `commit`: reports change and, if
+    /// changed, immediately commits the new reference. Callers that need to
+    /// gate committing on a downstream success (e.g. a successful OCR read)
+    /// should use `peek`/`commit` directly instead.
+    pub fn changed(&mut self, frame: &RgbaImage) -> bool {
+        let changed = self.peek(frame);
         if changed {
-            self.last = Some(now);
+            self.commit(frame);
         }
         changed
     }
@@ -95,5 +123,24 @@ mod tests {
     #[test]
     fn thumb_is_fixed_size() {
         assert_eq!(thumb_luma(&solid(0)).len(), 32 * 8);
+    }
+
+    #[test]
+    fn single_dim_text_row_is_detected() {
+        // Reference: uniformly dark chat box. Candidate: identical except
+        // one band of rows (a single new chat line) turns noticeably
+        // lighter. The global mean dilutes this across all 8 thumbnail
+        // rows, but the max per-row diff catches it.
+        let mut g = FrameGate::new(3.0);
+        let reference = RgbaImage::from_pixel(300, 110, Rgba([30, 30, 30, 255]));
+        assert!(g.changed(&reference));
+
+        let mut candidate = RgbaImage::from_pixel(300, 110, Rgba([30, 30, 30, 255]));
+        for y in 0..14 {
+            for x in 0..300 {
+                candidate.put_pixel(x, y, Rgba([70, 70, 70, 255]));
+            }
+        }
+        assert!(g.changed(&candidate));
     }
 }

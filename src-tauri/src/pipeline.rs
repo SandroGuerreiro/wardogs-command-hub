@@ -42,16 +42,16 @@ impl Pipeline {
     /// Gate, OCR, dedup and parse one chat frame. Returns only messages not
     /// seen before. Unchanged frames return an empty vector without OCR.
     pub fn tick(&mut self, frame: &RgbaImage, now_ms: u64) -> Result<Vec<Message>, OcrError> {
-        if !self.gate.changed(frame) {
+        if !self.gate.peek(frame) {
             return Ok(Vec::new());
         }
         let grey = preprocess(frame, self.upscale);
-        let lines: Vec<String> = self
-            .engine
-            .read(&grey)?
-            .into_iter()
-            .map(|l| l.text)
-            .collect();
+        let read = self.engine.read(&grey)?;
+        // Only adopt this frame as the new gate reference once OCR has
+        // actually succeeded on it; a failed read leaves the reference
+        // unchanged so the next tick still sees this frame as "changed".
+        self.gate.commit(frame);
+        let lines: Vec<String> = read.into_iter().map(|l| l.text).collect();
         let fresh = self.dedup.push(&lines);
         Ok(fresh
             .iter()
