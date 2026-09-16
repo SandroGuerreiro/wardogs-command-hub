@@ -1,35 +1,64 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use wardogs_command_hub::capture::{crop, FrameSource, ScreenCapturer};
-use wardogs_command_hub::config::{Rect, Settings};
+use wardogs_command_hub::config::{OcrEngineKind, Rect, Settings};
 use wardogs_command_hub::maps::MapRegistry;
 use wardogs_command_hub::ocr::{fetch_models, preprocess, OcrEngine, OcrsEngine};
 use wardogs_command_hub::parser::PlaceIndex;
 use wardogs_command_hub::pipeline::Pipeline;
 use wardogs_command_hub::state::{apply, expire, Snapshot};
 
+/// Used both for the `ocr` command's preprocessing scale and the pipeline's
+/// live upscale factor; the two never need to differ in practice.
 const DEFAULT_SCALE: u32 = 3;
 const DEFAULT_FPS: f32 = 2.0;
-const DEFAULT_UPSCALE: u32 = 3;
 const MAX_MESSAGES: usize = 500;
 const MAX_BACKOFF: Duration = Duration::from_secs(5);
 const MAX_BACKOFF_EXPONENT: u32 = 16;
 
 fn usage() -> ! {
     eprintln!("usage: hub-cli fetch-models | ocr <image> [x y w h] | watch [settings.json]");
+    eprintln!(
+        "  models/, maps/ and settings.json are resolved relative to the current working directory"
+    );
     std::process::exit(2)
 }
 
+/// Parses optional `[x y w h]` rect args. `None` means no args were given
+/// (caller should use a default); `Err` means args were given but did not
+/// form exactly four `u32` values.
+fn parse_rect(args: &[String]) -> Result<Option<Rect>, String> {
+    if args.is_empty() {
+        return Ok(None);
+    }
+    if args.len() != 4 {
+        return Err(format!(
+            "expected 4 rect values (x y w h), got {}",
+            args.len()
+        ));
+    }
+    let mut n = [0u32; 4];
+    for (slot, a) in n.iter_mut().zip(args) {
+        *slot = a
+            .parse()
+            .map_err(|_| format!("invalid rect value: '{a}'"))?;
+    }
+    Ok(Some(Rect {
+        x: n[0],
+        y: n[1],
+        w: n[2],
+        h: n[3],
+    }))
+}
+
 fn rect_from(args: &[String]) -> Rect {
-    let n: Vec<u32> = args.iter().filter_map(|a| a.parse().ok()).collect();
-    match n.as_slice() {
-        [x, y, w, h] => Rect {
-            x: *x,
-            y: *y,
-            w: *w,
-            h: *h,
-        },
-        _ => Settings::default().chat_rect,
+    match parse_rect(args) {
+        Ok(Some(rect)) => rect,
+        Ok(None) => Settings::default().chat_rect,
+        Err(e) => {
+            eprintln!("{e}");
+            usage()
+        }
     }
 }
 
@@ -41,6 +70,19 @@ fn run_ocr(path: &Path, rect: Rect, models_dir: &Path) -> anyhow::Result<()> {
         println!("{}", line.text);
     }
     Ok(())
+}
+
+/// Notice to print when `kind` names an OCR engine not available in this
+/// build. This build only ships the `ocrs` engine, so any other requested
+/// kind falls back to it. Returns `None` when no notice is needed.
+fn engine_notice(kind: OcrEngineKind) -> Option<String> {
+    match kind {
+        OcrEngineKind::Ocrs => None,
+        OcrEngineKind::Windows => Some(
+            "requested OCR engine 'windows' is not available in this build; using ocrs instead"
+                .to_string(),
+        ),
+    }
 }
 
 /// Interval between captures for a given fps. Non-positive fps falls back to
@@ -80,6 +122,9 @@ struct WatchContext {
 
 fn setup_watch(settings_path: &Path) -> anyhow::Result<WatchContext> {
     let settings = Settings::load(settings_path)?;
+    if let Some(notice) = engine_notice(settings.ocr_engine) {
+        eprintln!("{notice}");
+    }
     let registry = MapRegistry::load_dir(Path::new("maps"))?;
     for (folder, err) in &registry.errors {
         eprintln!("map '{folder}' skipped: {err}");
@@ -98,7 +143,7 @@ fn setup_watch(settings_path: &Path) -> anyhow::Result<WatchContext> {
         Box::new(engine),
         places,
         settings.dedup_capacity,
-        DEFAULT_UPSCALE,
+        DEFAULT_SCALE,
     );
     let source = ScreenCapturer::new(settings.monitor_index, settings.chat_rect)?;
     let interval = frame_interval(settings.capture_fps);
@@ -132,6 +177,7 @@ fn watch_loop(ctx: &mut WatchContext) -> anyhow::Result<()> {
     let mut snapshot = Snapshot::default();
     let mut consecutive_errors: u32 = 0;
     let mut last_error: Option<String> = None;
+    let mut last_pins_printed: Option<usize> = None;
     loop {
         let started = Instant::now();
         let now = now_ms();
@@ -149,15 +195,27 @@ fn watch_loop(ctx: &mut WatchContext) -> anyhow::Result<()> {
                     snapshot = apply(&snapshot, m, ctx.map.as_ref(), ctx.ttl_ms, MAX_MESSAGES);
                 }
                 snapshot = expire(&snapshot, now);
-                eprintln!("pins: {}", snapshot.pins.len());
+                print_pins_if_changed(snapshot.pins.len(), &mut last_pins_printed);
             }
             Err(e) => {
                 consecutive_errors = consecutive_errors.saturating_add(1);
                 last_error = log_error_once(&e, last_error);
+                // Pins still need to age out during a capture outage, even
+                // though no new messages arrived this tick.
+                snapshot = expire(&snapshot, now);
+                print_pins_if_changed(snapshot.pins.len(), &mut last_pins_printed);
             }
         }
         let sleep_for = backoff_for(ctx.interval, consecutive_errors);
         std::thread::sleep(sleep_for.saturating_sub(started.elapsed()));
+    }
+}
+
+/// Prints `pins: N` only when `n` differs from the last printed count.
+fn print_pins_if_changed(n: usize, last_printed: &mut Option<usize>) {
+    if *last_printed != Some(n) {
+        eprintln!("pins: {n}");
+        *last_printed = Some(n);
     }
 }
 
@@ -168,7 +226,11 @@ fn run_watch(settings_path: &Path) -> anyhow::Result<()> {
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let models_dir = PathBuf::from("models");
+    // Loaded once so `fetch-models`, `ocr` and `watch` all resolve models
+    // from the same `settings.json`-configured directory (defaults when the
+    // file is missing).
+    let settings = Settings::load(Path::new("settings.json"))?;
+    let models_dir = settings.models_dir.clone();
     match args.first().map(String::as_str) {
         Some("fetch-models") => fetch_models(&models_dir)?,
         Some("ocr") => {
@@ -205,5 +267,54 @@ mod tests {
         assert_eq!(backoff_for(base, 3), Duration::from_secs(4));
         assert_eq!(backoff_for(base, 4), Duration::from_secs(5));
         assert_eq!(backoff_for(base, u32::MAX), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn engine_notice_for_unavailable_engine() {
+        assert!(engine_notice(OcrEngineKind::Windows).is_some());
+        assert_eq!(engine_notice(OcrEngineKind::Ocrs), None);
+    }
+
+    #[test]
+    fn parse_rect_empty_is_default() {
+        assert_eq!(parse_rect(&[]).unwrap(), None);
+    }
+
+    #[test]
+    fn parse_rect_four_good_values() {
+        let args: Vec<String> = ["1", "2", "3", "4"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            parse_rect(&args).unwrap(),
+            Some(Rect {
+                x: 1,
+                y: 2,
+                w: 3,
+                h: 4
+            })
+        );
+    }
+
+    #[test]
+    fn parse_rect_wrong_count_is_error() {
+        let args: Vec<String> = ["1", "2", "3"].iter().map(|s| s.to_string()).collect();
+        assert!(parse_rect(&args).is_err());
+    }
+
+    #[test]
+    fn parse_rect_non_numeric_is_error() {
+        let args: Vec<String> = ["1", "2", "3", "x"].iter().map(|s| s.to_string()).collect();
+        assert!(parse_rect(&args).is_err());
+    }
+
+    #[test]
+    fn pins_only_printed_when_changed() {
+        let mut last = None;
+        // First call always "changes" from None.
+        print_pins_if_changed(0, &mut last);
+        assert_eq!(last, Some(0));
+        print_pins_if_changed(0, &mut last);
+        assert_eq!(last, Some(0));
+        print_pins_if_changed(3, &mut last);
+        assert_eq!(last, Some(3));
     }
 }
